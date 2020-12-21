@@ -28,10 +28,18 @@ class SegmentationModule(SegmentationModuleBase):
 
     def forward(self, feed_dict, *, segSize=None):
         # training
+        if isinstance(feed_dict, list):
+            feed_dict = feed_dict[0]
+            if torch.cuda.is_available():
+                feed_dict['img_data'] = feed_dict['img_data'].cuda()
+                feed_dict['seg_label'] = feed_dict['seg_label'].cuda()
+            else:
+                raise Exception('cannot convert')
         if segSize is None:
             if self.deep_sup_scale is not None: # use deep supervision technique
                 (pred, pred_deepsup) = self.decoder(self.encoder(feed_dict['img_data'], return_feature_maps=True))
             else:
+                #import pdb; pdb.set_trace()
                 pred = self.decoder(self.encoder(feed_dict['img_data'], return_feature_maps=True))
 
             loss = self.crit(pred, feed_dict['seg_label'])

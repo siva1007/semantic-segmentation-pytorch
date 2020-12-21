@@ -158,7 +158,7 @@ def main(cfg, gpus):
             net_encoder, net_decoder, crit, cfg.TRAIN.deep_sup_scale)
     else:
         segmentation_module = SegmentationModule(
-            net_encoder, net_decoder, crit)
+            net_encoder, net_decoder, crit).cuda()
 
     # Dataset and Loader
     dataset_train = TrainDataset(

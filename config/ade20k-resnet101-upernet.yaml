@@ -15,9 +15,9 @@ MODEL:
   fc_dim: 2048
 
 TRAIN:
-  batch_size_per_gpu: 2
-  num_epoch: 40
-  start_epoch: 0
+  batch_size_per_gpu: 8
+  num_epoch: 100
+  start_epoch: 60
   epoch_iters: 5000
   optim: "SGD"
   lr_encoder: 0.02
@@ -33,10 +33,10 @@ TRAIN:
 
 VAL:
   visualize: False
-  checkpoint: "epoch_50.pth"
+  checkpoint: "epoch_60.pth"
 
 TEST:
-  checkpoint: "epoch_50.pth"
+  checkpoint: "epoch_60.pth"
   result: "./"
 
 DIR: "ckpt/ade20k-resnet101-upernet"
