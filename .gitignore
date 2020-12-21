@@ -12,4 +12,4 @@ ADE_val*.png
 
 .idea/
 
-data/
+/data
