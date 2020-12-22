@@ -187,6 +187,11 @@ if __name__ == '__main__':
         help="Interval for evaluation of models"
     )
     parser.add_argument(
+        "--start_epoch",
+        default=5,
+        help="Interval for evaluation of models"
+    )
+    parser.add_argument(
         "opts",
         help="Modify config options using the command-line",
         default=None,
@@ -205,10 +210,10 @@ if __name__ == '__main__':
     result = {}
 
     if args.multiple_epochs:
-        epoch = 1
+        epoch = int(args.start_epoch)
         epoch_exists = True
         while epoch_exists:
-            cfg.VAL.checkpoint = epoch
+            cfg.VAL.checkpoint = 'epoch_{}.pth'.format(epoch)
             cfg.MODEL.weights_encoder = os.path.join(
                 cfg.DIR, 'encoder_' + cfg.VAL.checkpoint)
             cfg.MODEL.weights_decoder = os.path.join(
@@ -218,30 +223,29 @@ if __name__ == '__main__':
                 os.path.exists(cfg.MODEL.weights_decoder)
             if epoch_exists:
                 result[epoch] = main(cfg, args.gpu)
-                epoch += args.interval
+                epoch += int(args.interval)
                 
         if not os.path.isdir(os.path.join(cfg.DIR, "result")):
             os.makedirs(os.path.join(cfg.DIR, "result"))
 
         date = datetime.datetime.now()
         timestamp = str(date.strftime("%c")).replace(' ', '_')
-        output_file_name = "evaluation_{}_{}.json".format(args.interval, timestamp)
+        output_file_name = "evaluation_start-{}_interval-{}_{}.json".format(args.start_epoch, args.interval, timestamp)
         output_file = os.path.join(cfg.DIR, "result", output_file_name)
 
         with open(output_file, 'w') as outfile:
-            json.dump(data, outfile)
+            json.dump(result, outfile)
 
-        return
-            
-    # absolute paths of model weights
-    cfg.MODEL.weights_encoder = os.path.join(
-        cfg.DIR, 'encoder_' + cfg.VAL.checkpoint)
-    cfg.MODEL.weights_decoder = os.path.join(
-        cfg.DIR, 'decoder_' + cfg.VAL.checkpoint)
-    assert os.path.exists(cfg.MODEL.weights_encoder) and \
-        os.path.exists(cfg.MODEL.weights_decoder), "checkpoint does not exitst!"
+    else:            
+        # absolute paths of model weights
+        cfg.MODEL.weights_encoder = os.path.join(
+            cfg.DIR, 'encoder_' + cfg.VAL.checkpoint)
+        cfg.MODEL.weights_decoder = os.path.join(
+            cfg.DIR, 'decoder_' + cfg.VAL.checkpoint)
+        assert os.path.exists(cfg.MODEL.weights_encoder) and \
+            os.path.exists(cfg.MODEL.weights_decoder), "checkpoint does not exitst!"
 
-    if not os.path.isdir(os.path.join(cfg.DIR, "result")):
-        os.makedirs(os.path.join(cfg.DIR, "result"))
+        if not os.path.isdir(os.path.join(cfg.DIR, "result")):
+            os.makedirs(os.path.join(cfg.DIR, "result"))
 
-    main(cfg, args.gpu)
+        main(cfg, args.gpu)
