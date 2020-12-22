@@ -17,6 +17,8 @@ from mit_semseg.lib.nn import user_scattered_collate, async_copy_to
 from mit_semseg.lib.utils import as_numpy
 from PIL import Image
 from tqdm import tqdm
+import json
+import datetime
 
 colors = loadmat('data/color150.mat')['colors']
 
@@ -95,13 +97,24 @@ def evaluate(segmentation_module, loader, cfg, gpu):
         pbar.update(1)
 
     # summary
+    result = {}
+    class_result = {}
     iou = intersection_meter.sum / (union_meter.sum + 1e-10)
     for i, _iou in enumerate(iou):
+        key = 'class {}'.format(i)
+        class_result[key] = _iou
         print('class [{}], IoU: {:.4f}'.format(i, _iou))
 
     print('[Eval Summary]:')
     print('Mean IoU: {:.4f}, Accuracy: {:.2f}%, Inference Time: {:.4f}s'
           .format(iou.mean(), acc_meter.average()*100, time_meter.average()))
+
+    result['Mean IoU'] = iou.mean()
+    result['Accuracy'] = acc_meter.average() * 100
+    result['Inference Time'] = ime_meter.average()
+    result['Class Result'] = class_result
+
+    return result
 
 
 def main(cfg, gpu):
@@ -139,9 +152,9 @@ def main(cfg, gpu):
     segmentation_module.cuda()
 
     # Main loop
-    evaluate(segmentation_module, loader_val, cfg, gpu)
+    return evaluate(segmentation_module, loader_val, cfg, gpu)
 
-    print('Evaluation Done!')
+    # print('Evaluation Done!')
 
 
 if __name__ == '__main__':
@@ -164,6 +177,16 @@ if __name__ == '__main__':
         help="gpu to use"
     )
     parser.add_argument(
+        "--multiple_epochs",
+        default=False,
+        help="evaluate multiple epochs"
+    )
+    parser.add_argument(
+        "--interval",
+        default=5,
+        help="Interval for evaluation of models"
+    )
+    parser.add_argument(
         "opts",
         help="Modify config options using the command-line",
         default=None,
@@ -179,6 +202,37 @@ if __name__ == '__main__':
     logger.info("Loaded configuration file {}".format(args.cfg))
     logger.info("Running with config:\n{}".format(cfg))
 
+    result = {}
+
+    if args.multiple_epochs:
+        epoch = 1
+        epoch_exists = True
+        while epoch_exists:
+            cfg.VAL.checkpoint = epoch
+            cfg.MODEL.weights_encoder = os.path.join(
+                cfg.DIR, 'encoder_' + cfg.VAL.checkpoint)
+            cfg.MODEL.weights_decoder = os.path.join(
+                cfg.DIR, 'decoder_' + cfg.VAL.checkpoint)
+        
+            epoch_exists = os.path.exists(cfg.MODEL.weights_encoder) and \
+                os.path.exists(cfg.MODEL.weights_decoder)
+            if epoch_exists:
+                result[epoch] = main(cfg, args.gpu)
+                epoch += args.interval
+                
+        if not os.path.isdir(os.path.join(cfg.DIR, "result")):
+            os.makedirs(os.path.join(cfg.DIR, "result"))
+
+        date = datetime.datetime.now()
+        timestamp = str(date.strftime("%c")).replace(' ', '_')
+        output_file_name = "evaluation_{}_{}.json".format(args.interval, timestamp)
+        output_file = os.path.join(cfg.DIR, "result", output_file_name)
+
+        with open(output_file, 'w') as outfile:
+            json.dump(data, outfile)
+
+        return
+            
     # absolute paths of model weights
     cfg.MODEL.weights_encoder = os.path.join(
         cfg.DIR, 'encoder_' + cfg.VAL.checkpoint)
