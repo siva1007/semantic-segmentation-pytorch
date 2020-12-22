@@ -111,7 +111,7 @@ def evaluate(segmentation_module, loader, cfg, gpu):
 
     result['Mean IoU'] = iou.mean()
     result['Accuracy'] = acc_meter.average() * 100
-    result['Inference Time'] = ime_meter.average()
+    result['Inference Time'] = time_meter.average()
     result['Class Result'] = class_result
 
     return result
