@@ -228,9 +228,9 @@ if __name__ == '__main__':
         if not os.path.isdir(os.path.join(cfg.DIR, "result")):
             os.makedirs(os.path.join(cfg.DIR, "result"))
 
-        date = datetime.datetime.now()
-        timestamp = str(date.strftime("%c")).replace(' ', '_')
-        output_file_name = "evaluation_start-{}_interval-{}_{}.json".format(args.start_epoch, args.interval, timestamp)
+        date = str(datetime.datetime.now().replace(microsecond=0))
+        date = date.replace(' ', '_').replace(':', '-')
+        output_file_name = "evaluation_start-{}_interval-{}_{}.json".format(args.start_epoch, args.interval, date)
         output_file = os.path.join(cfg.DIR, "result", output_file_name)
 
         with open(output_file, 'w') as outfile:
