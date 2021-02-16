@@ -10,7 +10,7 @@ import torch.nn as nn
 from scipy.io import loadmat
 # Our libs
 from mit_semseg.config import cfg
-from mit_semseg.dataset import ValDataset
+from mit_semseg.dataset import ValDataset, TrainDataset
 from mit_semseg.models import ModelBuilder, SegmentationModule
 from mit_semseg.utils import AverageMeter, colorEncode, accuracy, intersectionAndUnion, setup_logger
 from mit_semseg.lib.nn import user_scattered_collate, async_copy_to
@@ -116,8 +116,79 @@ def evaluate(segmentation_module, loader, cfg, gpu):
 
     return result
 
+def evaluate_train(segmentation_module, loader, cfg, gpu):
+    acc_meter = AverageMeter()
+    intersection_meter = AverageMeter()
+    union_meter = AverageMeter()
+    time_meter = AverageMeter()
 
-def main(cfg, gpu):
+    segmentation_module.eval()
+
+    pbar = tqdm(total=len(loader))
+    for batch_data in loader:
+        # process data
+        batch_data = batch_data[0]
+        seg_label = as_numpy(batch_data['seg_label'][0])
+        img_resized_list = batch_data['img_data']
+
+        torch.cuda.synchronize()
+        tic = time.perf_counter()
+        with torch.no_grad():
+            segSize = (seg_label.shape[0], seg_label.shape[1])
+            scores = torch.zeros(1, cfg.DATASET.num_class, segSize[0], segSize[1])
+            scores = async_copy_to(scores, gpu)
+
+            feed_dict = batch_data.copy()
+            feed_dict = async_copy_to(feed_dict, gpu)
+
+            # forward pass
+            scores_tmp = segmentation_module(feed_dict, segSize=segSize)
+            scores = scores + scores_tmp / len(cfg.DATASET.imgSizes)
+
+            _, pred = torch.max(scores, dim=1)
+            pred = as_numpy(pred.squeeze(0).cpu())
+
+        torch.cuda.synchronize()
+        time_meter.update(time.perf_counter() - tic)
+
+        # calculate accuracy
+        acc, pix = accuracy(pred, seg_label)
+        intersection, union = intersectionAndUnion(pred, seg_label, cfg.DATASET.num_class)
+        acc_meter.update(acc, pix)
+        intersection_meter.update(intersection)
+        union_meter.update(union)
+
+        # visualization
+        if cfg.VAL.visualize:
+            visualize_result(
+                (batch_data['img_ori'], seg_label, batch_data['info']),
+                pred,
+                os.path.join(cfg.DIR, 'result')
+            )
+
+        pbar.update(1)
+
+    # summary
+    result = {}
+    class_result = {}
+    iou = intersection_meter.sum / (union_meter.sum + 1e-10)
+    for i, _iou in enumerate(iou):
+        key = 'class {}'.format(i)
+        class_result[key] = _iou
+        print('class [{}], IoU: {:.4f}'.format(i, _iou))
+
+    print('[Eval Summary]:')
+    print('Mean IoU: {:.4f}, Accuracy: {:.2f}%, Inference Time: {:.4f}s'
+          .format(iou.mean(), acc_meter.average()*100, time_meter.average()))
+
+    result['Mean IoU'] = iou.mean()
+    result['Accuracy'] = acc_meter.average() * 100
+    result['Inference Time'] = time_meter.average()
+    result['Class Result'] = class_result
+
+    return result
+
+def main(cfg, gpu, mode='val'):
     torch.cuda.set_device(gpu)
 
     # Network Builders
@@ -136,25 +207,36 @@ def main(cfg, gpu):
 
     segmentation_module = SegmentationModule(net_encoder, net_decoder, crit)
 
-    # Dataset and Loader
-    dataset_val = ValDataset(
-        cfg.DATASET.root_dataset,
-        cfg.DATASET.list_val,
-        cfg.DATASET)
-    loader_val = torch.utils.data.DataLoader(
-        dataset_val,
-        batch_size=cfg.VAL.batch_size,
-        shuffle=False,
-        collate_fn=user_scattered_collate,
-        num_workers=5,
-        drop_last=True)
-
     segmentation_module.cuda()
 
-    # Main loop
-    return evaluate(segmentation_module, loader_val, cfg, gpu)
+    # Dataset and Loader
+    if mode == 'val':
+        dataset_val = ValDataset(
+            cfg.DATASET.root_dataset,
+            cfg.DATASET.list_val,
+            cfg.DATASET)
+        loader = torch.utils.data.DataLoader(
+            dataset_val,
+            batch_size=cfg.VAL.batch_size,
+            shuffle=False,
+            collate_fn=user_scattered_collate,
+            num_workers=5,
+            drop_last=True)
+        return evaluate(segmentation_module, loader, cfg, gpu)
+    else:
+        dataset_train = TrainDataset(
+            cfg.DATASET.root_dataset,
+            cfg.DATASET.list_train,
+            cfg.DATASET)
+        loader = torch.utils.data.DataLoader(
+            dataset_train,
+            batch_size=cfg.TRAIN.batch_size,
+            shuffle=False,
+            collate_fn=user_scattered_collate,
+            num_workers=5,
+            drop_last=True)
+        return evaluate_train(segmentation_module, loader, cfg, gpu)
 
-    # print('Evaluation Done!')
 
 
 if __name__ == '__main__':
@@ -183,12 +265,12 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         "--interval",
-        default=5,
+        default=1,
         help="Interval for evaluation of models"
     )
     parser.add_argument(
         "--start_epoch",
-        default=5,
+        default=1,
         help="Interval for evaluation of models"
     )
     parser.add_argument(
@@ -207,7 +289,8 @@ if __name__ == '__main__':
     logger.info("Loaded configuration file {}".format(args.cfg))
     logger.info("Running with config:\n{}".format(cfg))
 
-    result = {}
+    val_result = {}
+    train_result = {}
 
     if args.multiple_epochs:
         epoch = int(args.start_epoch)
@@ -222,19 +305,28 @@ if __name__ == '__main__':
             epoch_exists = os.path.exists(cfg.MODEL.weights_encoder) and \
                 os.path.exists(cfg.MODEL.weights_decoder)
             if epoch_exists:
-                result[epoch] = main(cfg, args.gpu)
+                # val_result[epoch] = main(cfg, args.gpu)
+                train_result[epoch] = main(cfg, args.gpu, mode='train')
                 epoch += int(args.interval)
+                if epoch == 3:
+                    break
                 
         if not os.path.isdir(os.path.join(cfg.DIR, "result")):
             os.makedirs(os.path.join(cfg.DIR, "result"))
 
         date = str(datetime.datetime.now().replace(microsecond=0))
         date = date.replace(' ', '_').replace(':', '-')
-        output_file_name = "evaluation_start-{}_interval-{}_{}.json".format(args.start_epoch, args.interval, date)
-        output_file = os.path.join(cfg.DIR, "result", output_file_name)
+        val_output_file_name = "val_evaluation_start-{}_interval-{}_{}.json".format(args.start_epoch, args.interval, date)
+        train_output_file_name = "train_evaluation_start-{}_interval-{}_{}.json".format(args.start_epoch, args.interval, date)
+        val_output_file = os.path.join(cfg.DIR, "result", val_output_file_name)
+        train_output_file = os.path.join(cfg.DIR, "result", train_output_file_name)
 
-        with open(output_file, 'w') as outfile:
-            json.dump(result, outfile)
+        with open(val_output_file, 'w') as outfile:
+            json.dump(val_result, outfile)
+        with open(train_output_file, 'w') as outfile:
+            json.dump(train_result, outfile)
+
+        
 
     else:            
         # absolute paths of model weights

@@ -5,7 +5,7 @@ import json
 ## A standard class for all plots
 
 def plot(data):
-    epochs = [int(k) for k in d.keys() for d in data]
+    epochs = [int(d) for d in data]
     epochs = sorted(epochs)
     
     IoU = []
@@ -37,7 +37,7 @@ def plot_evaluation(files_list):
 
 
 if __name__ == '__main__':
-    output_file = 'sample.json'
+    output_file = './ckpt/ade20k-resnet101-upernet/result/evaluation_start-5_interval-5_Mon_Jan_11_06:02:55_2021.json'
     with open(output_file, 'r') as outfile:
            data =  json.load(outfile)
 

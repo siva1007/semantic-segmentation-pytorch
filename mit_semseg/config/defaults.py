@@ -68,6 +68,8 @@ _C.TRAIN.deep_sup_scale = 0.4
 _C.TRAIN.fix_bn = False
 # number of data loading workers
 _C.TRAIN.workers = 16
+# batch size for train evaluation
+_C.TRAIN.batch_size = 1
 
 # frequency to display
 _C.TRAIN.disp_iter = 20
