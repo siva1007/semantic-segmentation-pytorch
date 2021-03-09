@@ -294,3 +294,44 @@ class TestDataset(BaseDataset):
 
     def __len__(self):
         return self.num_sample
+
+class ValDatasetNoMS(BaseDataset):
+    def __init__(self, root_dataset, odgt, opt, **kwargs):
+        super(ValDatasetNoMS, self).__init__(odgt, opt, **kwargs)
+        self.root_dataset = root_dataset
+
+    def __getitem__(self, index):
+        this_record = self.list_sample[index]
+        # load image and label
+        image_path = os.path.join(self.root_dataset, this_record['fpath_img'])
+        segm_path = os.path.join(self.root_dataset, this_record['fpath_segm'])
+        img = Image.open(image_path).convert('RGB')
+        segm = Image.open(segm_path)
+        assert(segm.mode == "L")
+        assert(img.size[0] == segm.size[0])
+        assert(img.size[1] == segm.size[1])
+
+        ori_width, ori_height = img.size
+        target_width = int(self.round2nearest_multiple(ori_width, self.padding_constant))
+        target_height = int(self.round2nearest_multiple(ori_height, self.padding_constant))
+
+        # resize images
+        img_resized = imresize(img, (target_width, target_height), interp='bilinear')
+
+        # image transform, to torch float tensor 3xHxW
+        img_resized = self.img_transform(img_resized)
+        img_resized = torch.unsqueeze(img_resized, 0)
+
+        # segm transform, to torch long tensor HxW
+        segm = self.segm_transform(segm)
+        batch_segms = torch.unsqueeze(segm, 0)
+
+        output = dict()
+        output['img_ori'] = np.array(img)
+        output['img_data'] = img_resized.contiguous()
+        output['seg_label'] = batch_segms.contiguous()
+        output['info'] = this_record['fpath_img']
+        return output
+
+    def __len__(self):
+        return self.num_sample

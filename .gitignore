@@ -14,3 +14,5 @@ ADE_val*.png
 .idea/
 
 /data
+
+.vscode/

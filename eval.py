@@ -10,7 +10,7 @@ import torch.nn as nn
 from scipy.io import loadmat
 # Our libs
 from mit_semseg.config import cfg
-from mit_semseg.dataset import ValDataset, TrainDataset
+from mit_semseg.dataset import ValDataset, TrainDataset, ValDatasetNoMS
 from mit_semseg.models import ModelBuilder, SegmentationModule
 from mit_semseg.utils import AverageMeter, colorEncode, accuracy, intersectionAndUnion, setup_logger
 from mit_semseg.lib.nn import user_scattered_collate, async_copy_to
@@ -123,7 +123,6 @@ def evaluate_train(segmentation_module, loader, cfg, gpu):
     time_meter = AverageMeter()
 
     segmentation_module.eval()
-
     pbar = tqdm(total=len(loader))
     for batch_data in loader:
         # process data
@@ -139,6 +138,9 @@ def evaluate_train(segmentation_module, loader, cfg, gpu):
             scores = async_copy_to(scores, gpu)
 
             feed_dict = batch_data.copy()
+            del feed_dict['img_ori']
+            del feed_dict['info']
+            # import pdb; pdb.set_trace()
             feed_dict = async_copy_to(feed_dict, gpu)
 
             # forward pass
@@ -224,12 +226,12 @@ def main(cfg, gpu, mode='val'):
             drop_last=True)
         return evaluate(segmentation_module, loader, cfg, gpu)
     else:
-        dataset_train = TrainDataset(
+        dataset_val = ValDatasetNoMS(
             cfg.DATASET.root_dataset,
             cfg.DATASET.list_train,
             cfg.DATASET)
         loader = torch.utils.data.DataLoader(
-            dataset_train,
+            dataset_val,
             batch_size=cfg.TRAIN.batch_size,
             shuffle=False,
             collate_fn=user_scattered_collate,
@@ -265,12 +267,12 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         "--interval",
-        default=1,
+        default=5,
         help="Interval for evaluation of models"
     )
     parser.add_argument(
         "--start_epoch",
-        default=1,
+        default=5,
         help="Interval for evaluation of models"
     )
     parser.add_argument(
@@ -305,11 +307,9 @@ if __name__ == '__main__':
             epoch_exists = os.path.exists(cfg.MODEL.weights_encoder) and \
                 os.path.exists(cfg.MODEL.weights_decoder)
             if epoch_exists:
-                # val_result[epoch] = main(cfg, args.gpu)
+                val_result[epoch] = main(cfg, args.gpu)
                 train_result[epoch] = main(cfg, args.gpu, mode='train')
                 epoch += int(args.interval)
-                if epoch == 3:
-                    break
                 
         if not os.path.isdir(os.path.join(cfg.DIR, "result")):
             os.makedirs(os.path.join(cfg.DIR, "result"))
